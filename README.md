@@ -18,7 +18,7 @@ Ce dépôt contient un script PowerShell interactif dédié à la **soumission d
    - Lecture d’un fichier `.eml` complet  
    - Nettoyage pour n’envoyer que la chaîne brute  
    - Sélection du type de menace via menu numérique (fallback `source-of-spam`)  
-   - Retry (3 ×) en cas d’échec réseau ou timeout  
+   - Retry (3 ×) en cas d’échec réseau (local) ou timeout API (trèèèès fréquent)
 
 2. **Consultation du compteur de soumissions**  
    - Nombre total et correspondances trouvées (30 derniers jours)  
