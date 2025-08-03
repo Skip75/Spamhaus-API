@@ -13,9 +13,16 @@ function Test-Port {
     $tcp   = New-Object System.Net.Sockets.TcpClient
     $async = $tcp.BeginConnect($Server, $Port, $null, $null)
     if ($async.AsyncWaitHandle.WaitOne($TimeoutMs, $false)) {
-        try { $tcp.EndConnect($async); $true }
-        catch { $false }
-        finally { $tcp.Close() }
+        try { 
+            $tcp.EndConnect($async)
+            $true 
+        }
+        catch { 
+            $false 
+        }
+        finally { 
+            $tcp.Close() 
+        }
     } else {
         $tcp.Close()
         $false
@@ -209,10 +216,10 @@ function Submit-Email {
             Write-Host "← Réponse reçue" -ForegroundColor Green
             $data = $json | ConvertFrom-Json
 
-            Write-Host "`nSoumission réussie!"                       -ForegroundColor Green
-            Write-Host "ID de soumission : $($data.id)"              -ForegroundColor White
-            Write-Host "Type de menace   : $($data.threat_type)"      -ForegroundColor White
-            Write-Host "Raison           : $($data.reason)"           -ForegroundColor White
+            Write-Host "`nSoumission réussie!"                   -ForegroundColor Green
+            Write-Host "ID de soumission : $($data.id)"          -ForegroundColor White
+            Write-Host "Type de menace   : $($data.threat_type)"  -ForegroundColor White
+            Write-Host "Raison           : $($data.reason)"       -ForegroundColor White
 
             $success = $true
         }
@@ -380,7 +387,6 @@ function Get-SubmissionsList {
 
     Read-Host "`nAppuyez sur Entrée pour continuer..."
 }
-
 
 # Boucle principale
 do {
