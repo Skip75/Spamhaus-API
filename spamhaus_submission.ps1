@@ -110,22 +110,21 @@ function Submit-Email {
 
     # Déduplication et menu...
     $threats = $rawTypes | Group-Object code | ForEach-Object { $_.Group[0] }
-    if (-not ($threats.code -contains "source-of-spam")) {
-        $threats = ,@{ code="source-of-spam"; desc="Source of spam" } + $threats
-    }
 
     Write-Host "`nTypes de menaces disponibles :" -ForegroundColor Yellow
     for ($i=0; $i -lt $threats.Count; $i++) {
         Write-Host " $($i+1). $($threats[$i].code) ($($threats[$i].desc))"
     }
     $sel = Read-Host "`nEntrez un numéro (1-$($threats.Count)) [défaut source-of-spam]"
-    if ([string]::IsNullOrWhiteSpace($sel)) { $threatType = "source-of-spam" }
-    else {
+    if ([string]::IsNullOrWhiteSpace($sel)) {
+        $threatType = "source-of-spam"
+    } else {
         while (-not ($sel -as [int] -and $sel -ge 1 -and $sel -le $threats.Count)) {
             $sel = Read-Host "Saisie invalide. Entrez un numéro (1-$($threats.Count))"
         }
-        $threatType = $threats[$sel-1].code
+        $threatType = $threats[$sel - 1].code
     }
+
 
     $emailPathRaw = Read-Host "`nChemin complet du fichier .eml"
     if (-not (Test-Path $emailPathRaw)) {
