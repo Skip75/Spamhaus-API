@@ -13,16 +13,9 @@ function Test-Port {
     $tcp   = New-Object System.Net.Sockets.TcpClient
     $async = $tcp.BeginConnect($Server, $Port, $null, $null)
     if ($async.AsyncWaitHandle.WaitOne($TimeoutMs, $false)) {
-        try { 
-            $tcp.EndConnect($async)
-            $true 
-        }
-        catch { 
-            $false 
-        }
-        finally { 
-            $tcp.Close() 
-        }
+        try { $tcp.EndConnect($async); $true }
+        catch { $false }
+        finally { $tcp.Close() }
     } else {
         $tcp.Close()
         $false
