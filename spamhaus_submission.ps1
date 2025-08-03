@@ -3,6 +3,10 @@
 # Auteur: Skip75
 # Documentation API : https://submit.spamhaus.org/api/
 
+# Forcer TLS1.2 et désactiver Keep-Alive avant toute fonction
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+[Net.ServicePointManager]::SetTcpKeepAlive($false, 0, 0)
+
 # ─── Vérification unique de connectivité réseau avec timeout ────────────────
 function Test-Port {
     param(
@@ -33,7 +37,7 @@ Start-Sleep -Seconds 1
 
 # Configuration de l'API
 $API_BASE_URL = "https://submit.spamhaus.org/portal/api/v1"
-$API_TOKEN    = "API KEY TO EDIT"
+$API_TOKEN    = "API_KEY"
 
 # Headers pour les requêtes API
 $headers = @{
@@ -104,282 +108,170 @@ function Submit-Email {
         $rawTypes = @(@{ code = "source-of-spam"; desc = "Source of spam" })
     }
 
-    # Déduplication des codes (conserver le premier desc rencontré pour chaque code)
-    $threats = $rawTypes |
-        Group-Object -Property code |
-        ForEach-Object { $_.Group[0] }
-
-    # Optionnel : forcer 'source-of-spam' en début de liste si non présent
+    # Déduplication et menu...
+    $threats = $rawTypes | Group-Object code | ForEach-Object { $_.Group[0] }
     if (-not ($threats.code -contains "source-of-spam")) {
-        $threats = ,@{ code = "source-of-spam"; desc = "Source of spam" } + $threats
+        $threats = ,@{ code="source-of-spam"; desc="Source of spam" } + $threats
     }
 
-    # Affichage du menu
     Write-Host "`nTypes de menaces disponibles :" -ForegroundColor Yellow
-    for ($i = 0; $i -lt $threats.Count; $i++) {
+    for ($i=0; $i -lt $threats.Count; $i++) {
         Write-Host " $($i+1). $($threats[$i].code) ($($threats[$i].desc))"
     }
-
-    # Lecture de la sélection avec fallback sur source-of-spam
     $sel = Read-Host "`nEntrez un numéro (1-$($threats.Count)) [défaut source-of-spam]"
-    if ([string]::IsNullOrWhiteSpace($sel)) {
-        $threatType = "source-of-spam"
-    } else {
+    if ([string]::IsNullOrWhiteSpace($sel)) { $threatType = "source-of-spam" }
+    else {
         while (-not ($sel -as [int] -and $sel -ge 1 -and $sel -le $threats.Count)) {
             $sel = Read-Host "Saisie invalide. Entrez un numéro (1-$($threats.Count))"
         }
-        $threatType = $threats[$sel - 1].code
+        $threatType = $threats[$sel-1].code
     }
 
-    # Chemin du fichier email
-    $emailPathRaw = Read-Host "`nVeuillez entrer le chemin complet vers le fichier email"
+    $emailPathRaw = Read-Host "`nChemin complet du fichier .eml"
     if (-not (Test-Path $emailPathRaw)) {
-        Write-Host "Erreur: Le fichier spécifié n'existe pas." -ForegroundColor Red
-        Read-Host "Appuyez sur Entrée pour continuer..."
+        Write-Host "Erreur: fichier introuvable." -ForegroundColor Red
+        Read-Host "Appuyez sur Entrée..."
         return
     }
-
-    # Lecture et nettoyage du contenu brut
-    $contentRaw = Get-Content -Path $emailPathRaw -Raw -Encoding UTF8
-    $emailContent = [string]$contentRaw
+    $emailContent = [string](Get-Content -Path $emailPathRaw -Raw -Encoding UTF8)
     if ([string]::IsNullOrWhiteSpace($emailContent)) {
-        Write-Host "Erreur: Le fichier email est vide." -ForegroundColor Red
-        Read-Host "Appuyez sur Entrée pour continuer..."
+        Write-Host "Erreur: email vide." -ForegroundColor Red
+        Read-Host "Appuyez sur Entrée..."
         return
     }
 
-    # Raison
-    $reason = Read-Host "Entrez la raison de la soumission (max 255 caractères)"
+    $reason = Read-Host "Raison (max 255 chars)"
     if ([string]::IsNullOrWhiteSpace($reason)) { $reason = "Email malveillant detecte" }
 
-    $maxRetries = 3
-    $attempt    = 0
-    $success    = $false
+    $payload = @{
+        threat_type = $threatType
+        reason      = $reason
+        source      = @{ object = $emailContent }
+    } | ConvertTo-Json -Depth 3
 
+    $sizeBytes = [System.Text.Encoding]::UTF8.GetByteCount($payload)
+    if ($sizeBytes -gt 150000) {
+        Write-Host "Erreur : payload >150Kb." -ForegroundColor Red
+        Read-Host "Appuyez sur Entrée..."
+        return
+    }
+
+    $maxRetries = 3; $attempt = 0; $success = $false
     while (-not $success -and $attempt -lt $maxRetries) {
         $attempt++
-        Write-Host "`nTentative $attempt/$maxRetries : Soumission email via API (timeout 10s)..." -ForegroundColor Yellow
-
+        Write-Host "`nTentative $attempt/$maxRetries : Soumission email (timeout 10s)..." -ForegroundColor Yellow
         try {
-            # Préparer payload
-            $payloadObj = [PSCustomObject]@{
-                threat_type = $threatType
-                reason      = $reason
-                source      = @{ object = $emailContent }
-            }
-            $payloadJson = $payloadObj | ConvertTo-Json -Depth 3
-            # Calcul de la taille en octets du JSON car limité par spamhaus
-            $sizeBytes = [System.Text.Encoding]::UTF8.GetByteCount($payloadJson)
-            Write-Host "`n[CHECK] Taille du payload : $sizeBytes octets" -ForegroundColor DarkGray
+            $response = Invoke-WebRequest `
+                -Uri "$API_BASE_URL/submissions/add/email" `
+                -Method POST `
+                -Headers $headers `
+                -Body $payload `
+                -TimeoutSec 10 `
+                -UseBasicParsing
 
-            if ($sizeBytes -gt 150000) {
-                Write-Host "Erreur : le contenu brut de l'email dépasse 150 Kb et ne peut pas être soumis." -ForegroundColor Red
-                Read-Host "`nAppuyez sur Entrée pour continuer..."
-                return
-            }
-
-            # DEBUG : afficher le JSON envoyé
-            #Write-Host "`n[DEBUG] Payload JSON :" -ForegroundColor DarkGray
-            #Write-Host $payloadJson -ForegroundColor DarkGray
-
-            # Création et envoi de la requête
-            $url = "$API_BASE_URL/submissions/add/email"
-            $req = [System.Net.HttpWebRequest]::Create($url)
-            $req.Method            = "POST"
-            $req.Timeout           = 10000
-            $req.ReadWriteTimeout  = 10000
-            $req.KeepAlive         = $false
-            $req.AllowAutoRedirect = $false
-            $req.Headers.Add("Authorization", "Bearer $API_TOKEN")
-            $req.ContentType       = "application/json"
-            $bytes                 = [System.Text.Encoding]::UTF8.GetBytes($payloadJson)
-            $req.ContentLength     = $bytes.Length
-
-            $streamReq = $req.GetRequestStream()
-            $streamReq.Write($bytes, 0, $bytes.Length)
-            $streamReq.Close()
-
-            # Lecture de la réponse
-            $resp   = $req.GetResponse()
-            $reader = New-Object System.IO.StreamReader($resp.GetResponseStream())
-            $json   = $reader.ReadToEnd()
-            $reader.Close()
-            $resp.Close()
-
-            Write-Host "← Réponse reçue" -ForegroundColor Green
-            $data = $json | ConvertFrom-Json
-
-            Write-Host "`nSoumission réussie!"                   -ForegroundColor Green
-            Write-Host "ID de soumission : $($data.id)"          -ForegroundColor White
-            Write-Host "Type de menace   : $($data.threat_type)"  -ForegroundColor White
-            Write-Host "Raison           : $($data.reason)"       -ForegroundColor White
-
+            $data = $response.Content | ConvertFrom-Json
+            Write-Host "← Soumission réussie ! ID: $($data.id)" -ForegroundColor Green
             $success = $true
         }
         catch [System.Net.WebException] {
-            Write-Host "× Échec (timeout ou réseau) : $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "× Erreur : $($_.Exception.Message)" -ForegroundColor Red
             if ($attempt -lt $maxRetries) {
                 $delay = 5 * $attempt
-                Write-Host "→ Nouvelle tentative dans $delay secondes..." -ForegroundColor Yellow
+                Write-Host "→ Nouvelle tentative dans $delay s..." -ForegroundColor Yellow
                 Start-Sleep -Seconds $delay
             }
         }
     }
-
     if (-not $success) {
-        Write-Host "`nErreur critique : impossible de soumettre après $maxRetries tentatives." -ForegroundColor Red
+        Write-Host "`nÉchec après $maxRetries tentatives." -ForegroundColor Red
     }
-
-    Read-Host "`nAppuyez sur Entrée pour continuer..."
+    Read-Host "`nAppuyez sur Entrée..."
 }
 
 function Get-SubmissionsCounter {
     Clear-Host
-    Write-Host "Compteur des submissions (soumis dans les 30 derniers jours)" -ForegroundColor Cyan
-    Write-Host "============================================================" -ForegroundColor Cyan
-
-    $maxRetries = 3
-    $attempt    = 0
-    $success    = $false
-
+    Write-Host "Compteur des submissions (30 derniers jours)" -ForegroundColor Cyan
+    $maxRetries = 3; $attempt = 0; $success = $false
     while (-not $success -and $attempt -lt $maxRetries) {
         $attempt++
-        Write-Host "`nTentative $attempt/$maxRetries : Envoi requête API submissions/count (timeout 10s) ..." -ForegroundColor Yellow
-
+        Write-Host "`nTentative $attempt/$maxRetries : récupération compteur (timeout 10s)..." -ForegroundColor Yellow
         try {
-            # Création de la requête HttpWebRequest
-            $url = "$API_BASE_URL/submissions/count"
-            $req = [System.Net.HttpWebRequest]::Create($url)
-            $req.Method            = "GET"
-            $req.Timeout           = 10000
-            $req.ReadWriteTimeout  = 10000
-            $req.KeepAlive         = $false
-            $req.AllowAutoRedirect = $false
-            $req.Headers.Add("Authorization", "Bearer $API_TOKEN")
-            $req.ContentType       = "application/json"
+            $response = Invoke-WebRequest `
+                -Uri "$API_BASE_URL/submissions/count" `
+                -Method GET `
+                -Headers $headers `
+                -TimeoutSec 10 `
+                -UseBasicParsing
 
-            # Lecture de la réponse
-            $resp   = $req.GetResponse()
-            $reader = New-Object System.IO.StreamReader($resp.GetResponseStream())
-            $json   = $reader.ReadToEnd()
-            $reader.Close()
-            $resp.Close()
-
-            Write-Host "← Réponse reçue" -ForegroundColor Green
-            $data = $json | ConvertFrom-Json
-
-            Write-Host "`nTotal des submissions : $($data.total)"  -ForegroundColor White
-            Write-Host "Trouvées dans datasets : $($data.matched)"  -ForegroundColor White
+            $data = $response.Content | ConvertFrom-Json
+            Write-Host "← Réponse : Total $($data.total), Matched $($data.matched)" -ForegroundColor Green
             if ($data.total -gt 0) {
-                $pct = [math]::Round(($data.matched / $data.total) * 100, 2)
-                Write-Host "Pourcentage de correspondances: $pct%"   -ForegroundColor Cyan
+                $pct = [math]::Round(($data.matched/$data.total)*100,2)
+                Write-Host "Correspondance: $pct%" -ForegroundColor Cyan
             }
-
             $success = $true
         }
         catch [System.Net.WebException] {
-            Write-Host "× Échec (timeout ou réseau) : $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "× Erreur : $($_.Exception.Message)" -ForegroundColor Red
             if ($attempt -lt $maxRetries) {
                 $delay = 5 * $attempt
-                Write-Host "→ Nouvelle tentative dans $delay secondes..." -ForegroundColor Yellow
+                Write-Host "→ Nouvelle tentative dans $delay s..." -ForegroundColor Yellow
                 Start-Sleep -Seconds $delay
             }
         }
     }
-
     if (-not $success) {
-        Write-Host "`nErreur critique : impossible de récupérer le compteur après $maxRetries tentatives." -ForegroundColor Red
+        Write-Host "`nÉchec après $maxRetries tentatives." -ForegroundColor Red
     }
-
-    Read-Host "`nAppuyez sur Entrée pour continuer..."
+    Read-Host "`nAppuyez sur Entrée..."
 }
 
 function Get-SubmissionsList {
     Clear-Host
     Write-Host "Liste des submissions" -ForegroundColor Cyan
-    Write-Host "=====================" -ForegroundColor Cyan
-
-    $items = Read-Host "`nNombre d'éléments par page (défaut 100, max 10000)"
+    $items = Read-Host "`nÉléments par page (1-10000, def=100)"
     if (-not ($items -as [int] -and $items -ge 1)) { $items = 100 }
-    $page  = Read-Host "Numéro de page (défaut 1)"
-    if (-not ($page -as [int] -and $page -ge 1))  { $page = 1 }
+    $page = Read-Host "Page (def=1)"
+    if (-not ($page -as [int] -and $page -ge 1)) { $page = 1 }
 
-    $maxRetries = 3
-    $attempt    = 0
-    $success    = $false
-
+    $maxRetries = 3; $attempt = 0; $success = $false
     while (-not $success -and $attempt -lt $maxRetries) {
         $attempt++
-        Write-Host "`nTentative $attempt/$maxRetries : Envoi requête API submissions/list (timeout 10s) ..." -ForegroundColor Yellow
-
+        Write-Host "`nTentative $attempt/$maxRetries : récupération liste (timeout 10s)..." -ForegroundColor Yellow
         try {
-            # Création de la requête HttpWebRequest
-            $url = "$API_BASE_URL/submissions/list?items=$items&page=$page"
-            $req = [System.Net.HttpWebRequest]::Create($url)
-            $req.Method            = "GET"
-            $req.Timeout           = 10000
-            $req.ReadWriteTimeout  = 10000
-            $req.KeepAlive         = $false
-            $req.AllowAutoRedirect = $false
-            $req.Headers.Add("Authorization", "Bearer $API_TOKEN")
-            $req.ContentType       = "application/json"
+            $response = Invoke-WebRequest `
+                -Uri "$API_BASE_URL/submissions/list?items=$items&page=$page" `
+                -Method GET `
+                -Headers $headers `
+                -TimeoutSec 10 `
+                -UseBasicParsing
 
-            # Lecture de la réponse
-            $resp   = $req.GetResponse()
-            $reader = New-Object System.IO.StreamReader($resp.GetResponseStream())
-            $json   = $reader.ReadToEnd()
-            $reader.Close()
-            $resp.Close()
-
-            Write-Host "← Réponse reçue" -ForegroundColor Green
-            $list = $json | ConvertFrom-Json
-
+            $list = $response.Content | ConvertFrom-Json
             if ($list.Count -eq 0) {
-                Write-Host "`nAucune submission trouvée." -ForegroundColor Yellow
+                Write-Host "Aucune submission trouvée." -ForegroundColor Yellow
             } else {
-                Write-Host "`nSubmissions récupérées: $($list.Count)" -ForegroundColor Green
-                Write-Host ("=" * 80) -ForegroundColor Gray
-
+                Write-Host "`nSubmissions: $($list.Count)" -ForegroundColor Green
                 foreach ($s in $list) {
-                    Write-Host "`nID            : $($s.id)"                    -ForegroundColor White
-                    Write-Host "Type          : $($s.submission_type)"       -ForegroundColor Cyan
-                    Write-Host "Type menace   : $($s.threat_type)"           -ForegroundColor Yellow
-                    Write-Host "Raison        : $($s.reason)"                -ForegroundColor White
-                    Write-Host "Date soumis   : $($s.submission_ts)"        -ForegroundColor Gray
-                    if ($s.listed) {
-                        Write-Host "Datasets trouvés : $($s.listed -join ', ')" -ForegroundColor Green
-                        Write-Host "Dernière vérif   : $($s.last_check)"      -ForegroundColor Gray
-                    } else {
-                        Write-Host "Statut        : En attente / non trouvé"   -ForegroundColor Yellow
-                    }
-                    if ($s.attributes) {
-                        Write-Host "Attributs :" -ForegroundColor Cyan
-                        $s.attributes.PSObject.Properties | ForEach-Object {
-                            Write-Host "  $_.Name : $_.Value" -ForegroundColor White
-                        }
-                    }
-                    Write-Host ("-" * 80) -ForegroundColor Gray
+                    Write-Host "ID: $($s.id) - Type: $($s.threat_type) - Date: $($s.submission_ts)"
                 }
             }
-
             $success = $true
         }
         catch [System.Net.WebException] {
-            Write-Host "× Échec (timeout ou réseau) : $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "× Erreur : $($_.Exception.Message)" -ForegroundColor Red
             if ($attempt -lt $maxRetries) {
                 $delay = 5 * $attempt
-                Write-Host "→ Nouvelle tentative dans $delay secondes..." -ForegroundColor Yellow
+                Write-Host "→ Nouvelle tentative dans $delay s..." -ForegroundColor Yellow
                 Start-Sleep -Seconds $delay
             }
         }
     }
-
     if (-not $success) {
-        Write-Host "`nErreur critique : impossible de récupérer la liste après $maxRetries tentatives." -ForegroundColor Red
+        Write-Host "`nÉchec après $maxRetries tentatives." -ForegroundColor Red
     }
-
-    Read-Host "`nAppuyez sur Entrée pour continuer..."
+    Read-Host "`nAppuyez sur Entrée..."
 }
+
 
 # Boucle principale
 do {
