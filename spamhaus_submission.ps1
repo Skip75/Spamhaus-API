@@ -37,7 +37,7 @@ Start-Sleep -Seconds 1
 
 # Configuration de l'API
 $API_BASE_URL = "https://submit.spamhaus.org/portal/api/v1"
-$API_TOKEN    = "API_KEY"
+$API_TOKEN    = "API-KEY"
 
 # Headers pour les requêtes API
 $headers = @{
@@ -112,21 +112,25 @@ function Submit-Email {
     $threats = $rawTypes | Group-Object code | ForEach-Object { $_.Group[0] }
 
     Write-Host "`nTypes de menaces disponibles :" -ForegroundColor Yellow
-    for ($i=0; $i -lt $threats.Count; $i++) {
-        Write-Host " $($i+1). $($threats[$i].code) ($($threats[$i].desc))"
+    for ($i = 0; $i -lt $threats.Count; $i++) {
+        Write-Host " $($i + 1). $($threats[$i].code) ($($threats[$i].desc))"
     }
+
     $sel = Read-Host "`nEntrez un numéro (1-$($threats.Count)) [défaut source-of-spam]"
     if ([string]::IsNullOrWhiteSpace($sel)) {
         $threatType = "source-of-spam"
     } else {
-        while (-not ($sel -as [int] -and $sel -ge 1 -and $sel -le $threats.Count)) {
+        $sel = $sel.Trim()
+        [int]$intSel = 0
+        while (-not ([int]::TryParse($sel, [ref]$intSel) -and $intSel -ge 1 -and $intSel -le $threats.Count)) {
             $sel = Read-Host "Saisie invalide. Entrez un numéro (1-$($threats.Count))"
+            $sel = $sel.Trim()
         }
-        $threatType = $threats[$sel - 1].code
+        $threatType = $threats[$intSel - 1].code
     }
 
-
     $emailPathRaw = Read-Host "`nChemin complet du fichier .eml"
+    $emailPathRaw = $emailPathRaw.Trim('"')
     if (-not (Test-Path $emailPathRaw)) {
         Write-Host "Erreur: fichier introuvable." -ForegroundColor Red
         Read-Host "Appuyez sur Entrée..."
@@ -281,7 +285,7 @@ do {
         '2' { Get-SubmissionsCounter }
         '3' { Get-SubmissionsList }
         '4' {
-            Write-Host "`nAu revoir!" -ForegroundColor Green
+            Write-Host "`nSortie du Script" -ForegroundColor Green
             break
         }
         default {
