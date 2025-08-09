@@ -131,18 +131,45 @@ function Submit-Email {
 
     $emailPathRaw = Read-Host "`nChemin complet du fichier .eml"
     $emailPathRaw = $emailPathRaw.Trim('"')
+
     if (-not (Test-Path $emailPathRaw)) {
-        Write-Host "Erreur: fichier introuvable." -ForegroundColor Red
-        Read-Host "Appuyez sur Entrée..."
-        return
+        Write-Host "`nFichier introuvable : $emailPathRaw" -ForegroundColor Red
+        Write-Host "Voici tous les fichiers .eml présents dans le dossier :" -ForegroundColor Yellow
+    
+        $directory = Split-Path $emailPathRaw
+        $emlFiles = Get-ChildItem -Path $directory -Filter "*.eml"
+    
+        if ($emlFiles.Count -eq 0) {
+            Write-Host "Aucun fichier .eml trouvé dans le dossier." -ForegroundColor DarkYellow
+            Pause
+            return  # Retour au menu principal
+        }
+
+        # Afficher la liste numérotée
+        for ($i = 0; $i -lt $emlFiles.Count; $i++) {
+            Write-Host ("{0}. {1}" -f ($i+1), $emlFiles[$i].Name)
+        }
+
+        # Demande à l'utilisateur de choisir un fichier
+        $choice = Read-Host "Entrez le numéro du fichier à utiliser, ou appuyez sur Entrée pour annuler"
+        if ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le $emlFiles.Count) {
+            $emailPathRaw = $emlFiles[[int]$choice - 1].FullName
+            Write-Host "`nFichier sélectionné : $emailPathRaw" -ForegroundColor Green
+        } else {
+            Write-Host "Aucun fichier choisi, retour au menu." -ForegroundColor DarkYellow
+            Pause
+            return
+        }
     }
+
+
     $emailContent = [string](Get-Content -Path $emailPathRaw -Raw -Encoding UTF8)
     if ([string]::IsNullOrWhiteSpace($emailContent)) {
         Write-Host "Erreur: email vide." -ForegroundColor Red
         Read-Host "Appuyez sur Entrée..."
         return
     }
-
+    
     $reason = Read-Host "Raison (max 255 chars)"
     if ([string]::IsNullOrWhiteSpace($reason)) { $reason = "Email malveillant detecte" }
 
