@@ -37,7 +37,7 @@ Start-Sleep -Seconds 1
 
 # Configuration de l'API
 $API_BASE_URL = "https://submit.spamhaus.org/portal/api/v1"
-$API_TOKEN    = "API-KEY"
+$API_TOKEN    = "API_KEY"
 
 # Headers pour les requêtes API
 $headers = @{
@@ -95,42 +95,47 @@ function Get-ThreatTypes {
     throw "Impossible de récupérer les types de menaces après $maxRetries tentatives."
 }
 
-function Submit-Email {
-    Clear-Host
-    Write-Host "Soumission d'email malveillant" -ForegroundColor Cyan
-    Write-Host "================================" -ForegroundColor Cyan
+    function Submit-Email {
+        Clear-Host
+        Write-Host "Soumission d'email malveillant" -ForegroundColor Cyan
+        Write-Host "================================" -ForegroundColor Cyan
 
-    # Récupération des types de menaces
-    try {
-        $rawTypes = Get-ThreatTypes
-    } catch {
-        Write-Host "Attention : impossible de récupérer les types, fallback vers 'source-of-spam'." -ForegroundColor Yellow
-        $rawTypes = @(@{ code = "source-of-spam"; desc = "Source of spam" })
-    }
-
-    # Déduplication et menu...
-    $threats = $rawTypes | Group-Object code | ForEach-Object { $_.Group[0] }
-
-    Write-Host "`nTypes de menaces disponibles :" -ForegroundColor Yellow
-    for ($i = 0; $i -lt $threats.Count; $i++) {
-        Write-Host " $($i + 1). $($threats[$i].code) ($($threats[$i].desc))"
-    }
-
-    $sel = Read-Host "`nEntrez un numéro (1-$($threats.Count)) [défaut source-of-spam]"
-    if ([string]::IsNullOrWhiteSpace($sel)) {
-        $threatType = "source-of-spam"
-    } else {
-        $sel = $sel.Trim()
-        [int]$intSel = 0
-        while (-not ([int]::TryParse($sel, [ref]$intSel) -and $intSel -ge 1 -and $intSel -le $threats.Count)) {
-            $sel = Read-Host "Saisie invalide. Entrez un numéro (1-$($threats.Count))"
-            $sel = $sel.Trim()
+        # Récupération des types de menaces
+        try {
+            $rawTypes = Get-ThreatTypes
+        } catch {
+            Write-Host "Attention : impossible de récupérer les types, fallback vers 'spam'." -ForegroundColor Yellow
+            $rawTypes = @(@{ code = "spam"; desc = "Spam"; type="email" })
         }
-        $threatType = $threats[$intSel - 1].code
-    }
 
-    $emailPathRaw = Read-Host "`nChemin complet du fichier .eml"
-    $emailPathRaw = $emailPathRaw.Trim('"')
+        # Filtrer uniquement les types "email"
+        $emailTypes = $rawTypes | Where-Object { $_.type -eq "email" }
+        if ($emailTypes.Count -eq 0) {
+            Write-Host "Aucun type de menace 'email' disponible depuis l'API." -ForegroundColor Red
+            Pause
+            return
+        }
+
+        Write-Host "`nTypes de menaces disponibles pour email :" -ForegroundColor Yellow
+        for ($i = 0; $i -lt $emailTypes.Count; $i++) {
+            Write-Host " $($i + 1). $($emailTypes[$i].code) ($($emailTypes[$i].desc))"
+        }
+
+        $sel = Read-Host "`nEntrez un numéro (1-$($emailTypes.Count)) [défaut spam]"
+        if ([string]::IsNullOrWhiteSpace($sel)) {
+            $threatType = "spam"
+        } else {
+            $sel = $sel.Trim()
+            [int]$intSel = 0
+            while (-not ([int]::TryParse($sel, [ref]$intSel) -and $intSel -ge 1 -and $intSel -le $emailTypes.Count)) {
+                $sel = Read-Host "Saisie invalide. Entrez un numéro (1-$($emailTypes.Count))"
+                $sel = $sel.Trim()
+            }
+            $threatType = $emailTypes[$intSel - 1].code
+        }
+
+        $emailPathRaw = Read-Host "`nChemin complet du fichier .eml"
+        $emailPathRaw = $emailPathRaw.Trim('"')
 
     if (-not (Test-Path $emailPathRaw)) {
         Write-Host "`nFichier introuvable : $emailPathRaw" -ForegroundColor Red
