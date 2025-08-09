@@ -65,7 +65,9 @@ Ce dépôt contient un script PowerShell interactif dédié à la **soumission d
 5. **Soumission robuste**  
  - POST HTTP via `Invoke-WebRequest` sur `/submissions/add/email` (timeout 10 s)  
  - Retry 3× avec délai progressif  
- - Gestion explicite des codes d’erreur HTTP 400, 401, 208, et des exceptions réseaux  
+ - Gestion explicite des codes d’erreur HTTP 400, 401, 208, et des exceptions réseaux
+6. **Si fichier non trouvé à cause d'un caractère spécial**  
+ - Cherche tous les fichiers  "*.eml" du répertoire
 
 ## Structure du script
 
