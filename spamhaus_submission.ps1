@@ -54,11 +54,12 @@ function Show-Menu {
     Write-Host "Sélectionnez une option:" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "1. Soumettre un email malveillant" -ForegroundColor Green
-    Write-Host "2. Obtenir le compteur de submissions (soumis dans les 30 derniers jours)" -ForegroundColor Green
-    Write-Host "3. Obtenir la liste des submissions"   -ForegroundColor Green
-    Write-Host "4. Quitter"                             -ForegroundColor Red
+    Write-Host "2. Soumettre un domaine malveillant" -ForegroundColor Green
+    Write-Host "3. Obtenir le compteur de submissions (soumis dans les 30 derniers jours)" -ForegroundColor Green
+    Write-Host "4. Obtenir la liste des submissions"   -ForegroundColor Green
+    Write-Host "5. Quitter"                             -ForegroundColor Red
     Write-Host ""
-    Write-Host -NoNewline "Votre choix (1-4): "          -ForegroundColor White
+    Write-Host -NoNewline "Votre choix (1-5): "          -ForegroundColor White
 }
 
 # Récupération robuste des types de menaces
@@ -223,6 +224,114 @@ function Get-ThreatTypes {
     Read-Host "`nAppuyez sur Entrée..."
 }
 
+    function Submit-Domain {
+        Clear-Host
+        Write-Host "Soumission de domaine malveillant" -ForegroundColor Cyan
+        Write-Host "=================================" -ForegroundColor Cyan
+
+        # Récupération des types de menaces
+        try {
+            $rawTypes = Get-ThreatTypes
+        } catch {
+            Write-Host "Attention : impossible de récupérer les types, fallback vers 'Phish'." -ForegroundColor Yellow
+            $rawTypes = @(@{ code = "phish"; desc = "Phish"; type="domain" })
+        }
+
+        # Filtrer uniquement les types "domain"
+        $domainTypes = $rawTypes | Where-Object { $_.type -eq "domain" }
+        if ($domainTypes.Count -eq 0) {
+            Write-Host "Aucun type de menace 'domain' disponible depuis l'API." -ForegroundColor Red
+            Pause
+            return
+        }
+
+        Write-Host "`nTypes de menaces disponibles pour domaine :" -ForegroundColor Yellow
+        for ($i = 0; $i -lt $domainTypes.Count; $i++) {
+            Write-Host " $($i + 1). $($domainTypes[$i].code) ($($domainTypes[$i].desc))"
+        }
+
+        $sel = Read-Host "`nEntrez un numéro (1-$($domainTypes.Count)) [défaut phish]"
+        if ([string]::IsNullOrWhiteSpace($sel)) {
+            $threatType = "phish"
+        } else {
+            $sel = $sel.Trim()
+            [int]$intSel = 0
+            while (-not ([int]::TryParse($sel, [ref]$intSel) -and $intSel -ge 1 -and $intSel -le $domainTypes.Count)) {
+                $sel = Read-Host "Saisie invalide. Entrez un numéro (1-$($domainTypes.Count))"
+                $sel = $sel.Trim()
+            }
+            $threatType = $domainTypes[$intSel - 1].code
+        }
+
+        # Saisie du domaine
+        $domainName = Read-Host "`nNom du domaine à signaler"
+        if ([string]::IsNullOrWhiteSpace($domainName)) {
+            Write-Host "Erreur : domaine vide." -ForegroundColor Red
+            Pause
+            return
+        }
+
+        $reason = Read-Host "Raison (max 255 chars)"
+        if ([string]::IsNullOrWhiteSpace($reason)) { $reason = "$($threatType) domain detected" }
+
+        # Préparation du payload
+        $payload = @{
+            threat_type = $threatType
+            reason      = $reason
+            source      = @{ object = $domainName }
+        } | ConvertTo-Json -Depth 3
+    
+        $sizeBytes = [System.Text.Encoding]::UTF8.GetByteCount($payload)
+        if ($sizeBytes -gt 150000) {
+            Write-Host "Erreur : payload >150Kb ??!" -ForegroundColor Red
+            Pause
+            return
+        }
+
+        Write-Host "`nSoumission domaine (timeout 10s)..." -ForegroundColor Yellow
+        try {
+            $response = Invoke-WebRequest `
+            -Uri "$API_BASE_URL/submissions/add/domain" `
+            -Method POST `
+            -Headers $headers `
+            -Body $payload `
+            -TimeoutSec 10 `
+            -UseBasicParsing
+
+            # Lire le statut HTTP
+            $statusCode = $response.StatusCode
+            $data = $response.Content | ConvertFrom-Json
+
+            switch ($statusCode) {
+                200 {
+                    Write-Host "← Soumission réussie ! ID: $($data.id)" -ForegroundColor Green
+                }
+                208 {
+                    Write-Host "← Soumission déjà signalée (doublon)." -ForegroundColor Cyan
+                }
+                default {
+                    Write-Host "× Erreur inattendue, code HTTP: $statusCode" -ForegroundColor Red
+                }
+            }
+        }
+        catch [System.Net.WebException] {
+            $webResponse = $_.Exception.Response
+            if ($webResponse -ne $null) {
+                $status = $webResponse.StatusCode.Value__
+                if ($status -eq 400) {
+                    Write-Host "× Erreur 400 : requête invalide (domaine manquant, threat_type invalide, etc.)" -ForegroundColor Red
+                }
+                else {
+                    Write-Host "× Erreur HTTP $status : $($_.Exception.Message)" -ForegroundColor Red
+                }
+            }
+            else {
+                Write-Host "× Erreur réseau ou inconnue : $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+    Pause
+}
+
 function Get-SubmissionsCounter {
     Clear-Host
     Write-Host "Compteur des submissions (30 derniers jours)" -ForegroundColor Cyan
@@ -314,15 +423,16 @@ do {
     $choice = Read-Host
     switch ($choice) {
         '1' { Submit-Email }
-        '2' { Get-SubmissionsCounter }
-        '3' { Get-SubmissionsList }
-        '4' {
+        '2' { Submit-Domain }
+        '3' { Get-SubmissionsCounter }
+        '4' { Get-SubmissionsList }
+        '5' {
             Write-Host "`nSortie du Script" -ForegroundColor Green
             break
         }
         default {
-            Write-Host "`nChoix invalide. Sélectionnez 1–4." -ForegroundColor Red
+            Write-Host "`nChoix invalide. Sélectionnez 1–5." -ForegroundColor Red
             Start-Sleep -Seconds 1
         }
     }
-} while ($choice -ne '4')
+} while ($choice -ne '5')
