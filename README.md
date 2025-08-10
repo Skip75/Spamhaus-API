@@ -23,7 +23,7 @@ Ce dépôt contient un script PowerShell interactif dédié à la **soumission d
 2. **Soumission d’un domaine malveillant**  
    - Saisie manuelle du nom de domaine  
    - Sélection du type de menace **`type=domain`** via menu numérique (fallback sur `phish`)  
-   - Validation format et champ non vide  
+   - Validation format (domaine et non URL) et champ non vide
    - Envoi direct (1 tentative) via `/submissions/add/domain`  
    - Gestion explicite des codes d’erreur HTTP 200, 208, 400 et exceptions réseau  
 
