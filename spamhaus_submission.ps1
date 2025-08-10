@@ -271,6 +271,25 @@ function Get-ThreatTypes {
             return
         }
 
+        # Détection et suppression du protocole s'il y en a un
+        if ($domainName -match '^(https?://)([^/]+)$') {
+            $domainName = $Matches[2]
+            Write-Host "Info : protocole http(s):// détecté et retiré. Domaine conservé : $domainName" -ForegroundColor Yellow
+        }
+        elseif ($domainName -match '^(https?://)(.+/+)') {
+            Write-Host "Erreur : URL complète détectée. Saisissez uniquement le domaine sans chemin." -ForegroundColor Red
+            Pause
+            return
+        }
+    
+        # Vérification que c'est bien un domaine valide
+        $domainPattern = '^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$'
+        if ($domainName -notmatch $domainPattern) {
+            Write-Host "Erreur : C'est pas un domaine que t'as écrit là... saisis uniquement un nom de domaine valide (sans chemin). Sinon soumets une URL dans le menu du script." -ForegroundColor Red
+            Pause
+            return
+        }
+
         $reason = Read-Host "Raison (max 255 chars)"
         if ([string]::IsNullOrWhiteSpace($reason)) { $reason = "$($threatType) domain detected" }
 
