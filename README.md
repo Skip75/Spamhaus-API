@@ -1,4 +1,4 @@
-# Spamhaus RAW Submission Script
+# Spamhaus Submission Script
 
 Ce dépôt contient un script PowerShell interactif dédié à la **soumission de contenu RAW d’e-mails** et de **domaines** malveillants vers l’API Spamhaus Submission Portal, ainsi qu'à la consultation du **compteur** et de la **liste** des soumissions récentes.
 
