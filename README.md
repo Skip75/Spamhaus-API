@@ -106,8 +106,6 @@ Le script implémente une **gestion détaillée des erreurs** pour toutes les so
 - **Erreurs réseau** : timeout, DNS, connexion refusée (retry pour emails uniquement)
 - **Lecture du corps de réponse** : extraction du message JSON même en cas d'erreur HTTP
 
-Cette approche permet un **diagnostic précis** des problèmes de soumission.
-
 ## Structure du script
 
 - `Test-Port` : vérifie la connectivité TCP initiale  
