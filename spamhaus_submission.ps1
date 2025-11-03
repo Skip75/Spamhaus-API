@@ -55,11 +55,12 @@ function Show-Menu {
     Write-Host ""
     Write-Host "1. Soumettre un email malveillant" -ForegroundColor Green
     Write-Host "2. Soumettre un domaine malveillant" -ForegroundColor Green
-    Write-Host "3. Obtenir le compteur de submissions (soumis dans les 30 derniers jours)" -ForegroundColor Green
-    Write-Host "4. Obtenir la liste des submissions"   -ForegroundColor Green
-    Write-Host "5. Quitter"                             -ForegroundColor Red
+    Write-Host "3. Soumettre une IP malveillante" -ForegroundColor Green
+    Write-Host "4. Obtenir le compteur de submissions (soumis dans les 30 derniers jours)" -ForegroundColor Green
+    Write-Host "5. Obtenir la liste des submissions"   -ForegroundColor Green
+    Write-Host "6. Quitter"                             -ForegroundColor Red
     Write-Host ""
-    Write-Host -NoNewline "Votre choix (1-5): "          -ForegroundColor White
+    Write-Host -NoNewline "Votre choix (1-6): "          -ForegroundColor White
 }
 
 # Récupération robuste des types de menaces
@@ -210,16 +211,57 @@ function Get-ThreatTypes {
             $success = $true
         }
         catch [System.Net.WebException] {
-            Write-Host "× Erreur : $($_.Exception.Message)" -ForegroundColor Red
-            if ($attempt -lt $maxRetries) {
-                $delay = 5 * $attempt
-                Write-Host "→ Nouvelle tentative dans $delay s..." -ForegroundColor Yellow
-                Start-Sleep -Seconds $delay
+            $webResponse = $_.Exception.Response
+            
+            if ($webResponse -ne $null) {
+                $status = $webResponse.StatusCode.Value__
+                
+                # Lire le corps de la réponse d'erreur
+                $reader = New-Object System.IO.StreamReader($webResponse.GetResponseStream())
+                $reader.BaseStream.Position = 0
+                $reader.DiscardBufferedData()
+                $responseBody = $reader.ReadToEnd()
+                $reader.Close()
+                
+                # Erreur 400 = problème de données, PAS de retry
+                if ($status -eq 400) {
+                    if (-not [string]::IsNullOrWhiteSpace($responseBody)) {
+                        try {
+                            $errorData = $responseBody | ConvertFrom-Json
+                            Write-Host "× Erreur 400 : $($errorData.message)" -ForegroundColor Red
+                        } catch {
+                            Write-Host "× Erreur 400 : $responseBody" -ForegroundColor Red
+                        }
+                    } else {
+                        Write-Host "× Erreur 400 : requête invalide (aucun détail retourné par le serveur)" -ForegroundColor Red
+                    }
+                    # Sortir immédiatement, pas de retry sur erreur 400
+                    break
+                }
+                # Autres erreurs HTTP (401, 403, 500, 503) = retry possible
+                else {
+                    Write-Host "× Erreur HTTP $status : $($_.Exception.Message)" -ForegroundColor Red
+                    if ($attempt -lt $maxRetries) {
+                        $delay = 5 * $attempt
+                        Write-Host "→ Nouvelle tentative dans $delay s..." -ForegroundColor Yellow
+                        Start-Sleep -Seconds $delay
+                    }
+                }
+            }
+            # Erreur réseau/timeout = retry justifié
+            else {
+                Write-Host "× Erreur réseau ou timeout : $($_.Exception.Message)" -ForegroundColor Red
+                if ($attempt -lt $maxRetries) {
+                    $delay = 5 * $attempt
+                    Write-Host "→ Nouvelle tentative dans $delay s..." -ForegroundColor Yellow
+                    Start-Sleep -Seconds $delay
+                }
             }
         }
     }
+    
     if (-not $success) {
-        Write-Host "`nÉchec après $maxRetries tentatives." -ForegroundColor Red
+        Write-Host "`n× Échec après $maxRetries tentatives." -ForegroundColor Red
     }
     Read-Host "`nAppuyez sur Entrée..."
 }
@@ -299,13 +341,6 @@ function Get-ThreatTypes {
             reason      = $reason
             source      = @{ object = $domainName }
         } | ConvertTo-Json -Depth 3
-    
-        $sizeBytes = [System.Text.Encoding]::UTF8.GetByteCount($payload)
-        if ($sizeBytes -gt 150000) {
-            Write-Host "Erreur : payload >150Kb ??!" -ForegroundColor Red
-            Pause
-            return
-        }
 
         Write-Host "`nSoumission domaine (timeout 10s)..." -ForegroundColor Yellow
         try {
@@ -333,23 +368,177 @@ function Get-ThreatTypes {
                 }
             }
         }
-        catch [System.Net.WebException] {
-            $webResponse = $_.Exception.Response
-            if ($webResponse -ne $null) {
-                $status = $webResponse.StatusCode.Value__
-                if ($status -eq 400) {
-                    Write-Host "× Erreur 400 : requête invalide (domaine manquant, threat_type invalide, etc.)" -ForegroundColor Red
-                }
-                else {
-                    Write-Host "× Erreur HTTP $status : $($_.Exception.Message)" -ForegroundColor Red
+    catch [System.Net.WebException] {
+        $webResponse = $_.Exception.Response
+        if ($webResponse -ne $null) {
+            $status = $webResponse.StatusCode.Value__
+            
+            # Tenter de lire le corps de la réponse d'erreur
+            $reader = New-Object System.IO.StreamReader($webResponse.GetResponseStream())
+            $reader.BaseStream.Position = 0
+            $reader.DiscardBufferedData()
+            $responseBody = $reader.ReadToEnd()
+            $reader.Close()
+            
+            if ($status -eq 400) {
+                if (-not [string]::IsNullOrWhiteSpace($responseBody)) {
+                    try {
+                        $errorData = $responseBody | ConvertFrom-Json
+                        Write-Host "× Erreur 400 : $($errorData.message)" -ForegroundColor Red
+                    } catch {
+                        Write-Host "× Erreur 400 : $responseBody" -ForegroundColor Red
+                    }
+                } else {
+                    Write-Host "× Erreur 400 : requête invalide (aucun détail retourné par le serveur)"     -ForegroundColor Red
                 }
             }
             else {
-                Write-Host "× Erreur réseau ou inconnue : $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "× Erreur HTTP $status : $($_.Exception.Message)" -ForegroundColor Red
             }
         }
+        else {
+            Write-Host "× Erreur réseau ou inconnue : $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
     Pause
 }
+
+
+function Submit-IP {
+    Clear-Host
+    Write-Host "Soumission d'IP malveillante" -ForegroundColor Cyan
+    Write-Host "=============================" -ForegroundColor Cyan
+
+    # Récupération des types de menaces
+    try {
+        $rawTypes = Get-ThreatTypes
+    } catch {
+        Write-Host "Attention : impossible de récupérer les types, fallback vers 'source-of-spam'." -ForegroundColor Yellow
+        $rawTypes = @(@{ code = "source-of-spam"; desc = "Source of Spam"; type="ip" })
+    }
+
+    # Filtrer uniquement les types "ip"
+    $ipTypes = $rawTypes | Where-Object { $_.type -eq "ip" }
+    if ($ipTypes.Count -eq 0) {
+        Write-Host "Aucun type de menace 'ip' disponible depuis l'API." -ForegroundColor Red
+        Pause
+        return
+    }
+
+    Write-Host "`nTypes de menaces disponibles pour IP :" -ForegroundColor Yellow
+    for ($i = 0; $i -lt $ipTypes.Count; $i++) {
+        Write-Host " $($i + 1). $($ipTypes[$i].code) ($($ipTypes[$i].desc))"
+    }
+
+    # Trouver l'index du type "spam" pour le fallback
+    $defaultIndex = 0
+    for ($i = 0; $i -lt $ipTypes.Count; $i++) {
+        if ($ipTypes[$i].code -eq "spam") {
+            $defaultIndex = $i
+            break
+        }
+    }
+
+    $sel = Read-Host "`nEntrez un numéro (1-$($ipTypes.Count)) [défaut $($defaultIndex + 1). spam]"
+    if ([string]::IsNullOrWhiteSpace($sel)) {
+        $threatType = $ipTypes[$defaultIndex].code
+    } else {
+        $sel = $sel.Trim()
+        [int]$intSel = 0
+        while (-not ([int]::TryParse($sel, [ref]$intSel) -and $intSel -ge 1 -and $intSel -le $ipTypes.Count)) {
+            $sel = Read-Host "Saisie invalide. Entrez un numéro (1-$($ipTypes.Count))"
+            $sel = $sel.Trim()
+        }
+        $threatType = $ipTypes[$intSel - 1].code
+    }
+
+    # Saisie de l'adresse IP
+    $ipAddress = Read-Host "`nAdresse IP à signaler"
+    if ([string]::IsNullOrWhiteSpace($ipAddress)) {
+        Write-Host "Erreur : adresse IP vide." -ForegroundColor Red
+        Pause
+        return
+    }
+
+    # Validation de l'adresse IP (format IPv4 basique)
+    $ipPattern = '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+    if ($ipAddress -notmatch $ipPattern) {
+        Write-Host "Erreur : format d'adresse IP invalide. Saisissez une adresse IPv4 valide (ex: 102.168.1.1)." -ForegroundColor Red
+        Pause
+        return
+    }
+
+    $reason = Read-Host "Raison (defaut : 'Sending Spoofed emails')"
+    if ([string]::IsNullOrWhiteSpace($reason)) { $reason = "Sending spoofed emails" }
+
+    # Préparation du payload
+    $payload = @{
+        threat_type = $threatType
+        reason      = $reason
+        source      = @{ object = $ipAddress }
+    } | ConvertTo-Json -Depth 3
+
+    Write-Host "`nSoumission IP (timeout 10s)..." -ForegroundColor Yellow
+    try {
+        $response = Invoke-WebRequest `
+            -Uri "$API_BASE_URL/submissions/add/ip" `
+            -Method POST `
+            -Headers $headers `
+            -Body $payload `
+            -TimeoutSec 10 `
+            -UseBasicParsing
+
+        # Lire le statut HTTP
+        $statusCode = $response.StatusCode
+        $data = $response.Content | ConvertFrom-Json
+
+        switch ($statusCode) {
+            200 {
+                Write-Host "← Soumission réussie ! ID: $($data.id)" -ForegroundColor Green
+            }
+            208 {
+                Write-Host "← Soumission déjà signalée (doublon)." -ForegroundColor Cyan
+            }
+            default {
+                Write-Host "× Erreur inattendue, code HTTP: $statusCode" -ForegroundColor Red
+            }
+        }
+    }
+    catch [System.Net.WebException] {
+        $webResponse = $_.Exception.Response
+        if ($webResponse -ne $null) {
+            $status = $webResponse.StatusCode.Value__
+            
+            # Tenter de lire le corps de la réponse d'erreur
+            $reader = New-Object System.IO.StreamReader($webResponse.GetResponseStream())
+            $reader.BaseStream.Position = 0
+            $reader.DiscardBufferedData()
+            $responseBody = $reader.ReadToEnd()
+            $reader.Close()
+            
+            if ($status -eq 400) {
+                if (-not [string]::IsNullOrWhiteSpace($responseBody)) {
+                    try {
+                        $errorData = $responseBody | ConvertFrom-Json
+                        Write-Host "× Erreur 400 : $($errorData.message)" -ForegroundColor Red
+                    } catch {
+                        Write-Host "× Erreur 400 : $responseBody" -ForegroundColor Red
+                    }
+                } else {
+                    Write-Host "× Erreur 400 : requête invalide (aucun détail retourné par le serveur)"     -ForegroundColor Red
+                }
+            }
+            else {
+                Write-Host "× Erreur HTTP $status : $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        else {
+            Write-Host "× Erreur réseau ou inconnue : $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+    Pause
+}
+
 
 function Get-SubmissionsCounter {
     Clear-Host
@@ -443,15 +632,17 @@ do {
     switch ($choice) {
         '1' { Submit-Email }
         '2' { Submit-Domain }
-        '3' { Get-SubmissionsCounter }
-        '4' { Get-SubmissionsList }
-        '5' {
+        '3' { Submit-IP }
+        '4' { Get-SubmissionsCounter }
+        '5' { Get-SubmissionsList }
+        '6' {
             Write-Host "`nSortie du Script" -ForegroundColor Green
             break
         }
         default {
-            Write-Host "`nChoix invalide. Sélectionnez 1–5." -ForegroundColor Red
+            Write-Host "`nChoix invalide. Sélectionnez 1–6." -ForegroundColor Red
             Start-Sleep -Seconds 1
         }
     }
-} while ($choice -ne '5')
+} while ($choice -ne '6')
+
