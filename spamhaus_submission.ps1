@@ -586,44 +586,86 @@ function Get-SubmissionsList {
     $page = Read-Host "Page (def=1)"
     if (-not ($page -as [int] -and $page -ge 1)) { $page = 1 }
 
-    $maxRetries = 3; $attempt = 0; $success = $false
-    while (-not $success -and $attempt -lt $maxRetries) {
-        $attempt++
-        Write-Host "`nTentative $attempt/$maxRetries : récupération liste (timeout 10s)..." -ForegroundColor Yellow
-        try {
-            $response = Invoke-WebRequest `
-                -Uri "$API_BASE_URL/submissions/list?items=$items&page=$page" `
-                -Method GET `
-                -Headers $headers `
-                -TimeoutSec 10 `
-                -UseBasicParsing
+    Write-Host "`nRécupération liste (timeout 10s)..." -ForegroundColor Yellow
+    try {
+        $response = Invoke-WebRequest `
+            -Uri "$API_BASE_URL/submissions/list?items=$items&page=$page" `
+            -Method GET `
+            -Headers @{"Authorization" = "Bearer $API_TOKEN"} `
+            -TimeoutSec 10 `
+            -UseBasicParsing
 
-            $list = $response.Content | ConvertFrom-Json
-            if ($list.Count -eq 0) {
-                Write-Host "Aucune submission trouvée." -ForegroundColor Yellow
-            } else {
-                Write-Host "`nSubmissions: $($list.Count)" -ForegroundColor Green
-                foreach ($s in $list) {
-                    Write-Host "ID: $($s.id) - Type: $($s.threat_type) - Date: $($s.submission_ts)"
+        $list = $response.Content | ConvertFrom-Json
+        if ($list.Count -eq 0) {
+            Write-Host "Aucune submission trouvée." -ForegroundColor Yellow
+        } else {
+            Write-Host "`nSubmissions: $($list.Count)" -ForegroundColor Green
+            Write-Host ("{0,-25} {1,-15} {2,-53} {3,-20} {4,-20}" -f "Submission Time", "Submission Type", "Submission", "Threat Type", "Listed") -ForegroundColor Cyan
+            Write-Host ("{0,-25} {1,-15} {2,-53} {3,-20} {4,-20}" -f "---------------", "---------------", "----------", "-----------", "------") -ForegroundColor DarkGray
+            
+                        foreach ($s in $list) {
+                $dateTime = [DateTime]::Parse($s.submission_ts)
+                $formattedDate = $dateTime.ToString("MMM d, yyyy HH:mm")
+                
+                $submissionType = $s.submission_type
+                $submissionTypeDisplay = (Get-Culture).TextInfo.ToTitleCase($submissionType)
+                
+                $submissionObject = ""
+                switch ($submissionType) {
+                    "ip" {
+                        if ($s.attributes -and $s.attributes.address) {
+                            $submissionObject = $s.attributes.address
+                            if ($s.attributes.mask) {
+                                $submissionObject += "/$($s.attributes.mask)"
+                            }
+                        } else {
+                            $submissionObject = $s.source.object
+                        }
+                    }
+                    "domain" {
+                        if ($s.attributes -and $s.attributes.domain) {
+                            $submissionObject = $s.attributes.domain
+                        } else {
+                            $submissionObject = $s.source.object
+                        }
+                    }
+                    "email" {
+                        if ($s.attributes -and $s.attributes.subject) {
+                            $submissionObject = "Subject: $($s.attributes.subject)"
+                        } else {
+                            $submissionObject = "<raw email content>"
+                        }
+                    }
+                    default {
+                        $submissionObject = $s.source.object
+                    }
                 }
-            }
-            $success = $true
-        }
-        catch [System.Net.WebException] {
-            Write-Host "× Erreur : $($_.Exception.Message)" -ForegroundColor Red
-            if ($attempt -lt $maxRetries) {
-                $delay = 5 * $attempt
-                Write-Host "→ Nouvelle tentative dans $delay s..." -ForegroundColor Yellow
-                Start-Sleep -Seconds $delay
+                
+                $isListed = "Pending"
+                if ($null -eq $s.listed) {
+                    $isListed = "Pending"
+                } elseif ($s.listed -is [array] -and $s.listed.Count -eq 0) {
+                    $isListed = "No"
+                } elseif ($s.listed -is [array] -and $s.listed.Count -gt 0) {
+                    $datasets = $s.listed -join ", "
+                    $isListed = "Yes ($datasets)"
+                }
+                
+                # Tronquer si trop long (max 50 caractères)
+                if ($submissionObject.Length -gt 50) {
+                    $submissionObject = $submissionObject.Substring(0, 47) + "[...]"
+                }
+                
+                Write-Host ("{0,-25} {1,-15} {2,-53} {3,-20} {4,-20}" -f $formattedDate, $submissionTypeDisplay, $submissionObject, $s.threat_type, $isListed)
             }
         }
     }
-    if (-not $success) {
-        Write-Host "`nÉchec après $maxRetries tentatives." -ForegroundColor Red
+    catch {
+        Write-Host "× Erreur : $($_.Exception.Message)" -ForegroundColor Red
     }
+    
     Read-Host "`nAppuyez sur Entrée..."
 }
-
 
 # Boucle principale
 do {
