@@ -30,6 +30,7 @@ Write-Host "Vérification de la connexion à submit.spamhaus.org:443 (timeout 5s
 if (-not (Test-Port -Server 'submit.spamhaus.org' -Port 443 -TimeoutMs 5000)) {
     Write-Host "Erreur : impossible de joindre submit.spamhaus.org:443 en moins de 5s." -ForegroundColor Red
     Write-Host "Vérifiez votre réseau ou votre firewall." -ForegroundColor Yellow
+    Start-Sleep -Seconds 3
     exit
 }
 Write-Host "Connexion établie en moins de 5s." -ForegroundColor Green
