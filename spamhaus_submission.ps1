@@ -178,8 +178,8 @@ function Get-ThreatTypes {
         return
     }
     
-    $reason = Read-Host "Raison (max 255 chars)"
-    if ([string]::IsNullOrWhiteSpace($reason)) { $reason = "Email malveillant detecte" }
+    $reason = Read-Host "Raison (max 255 chars, Default or empty = 'Spam')"
+    if ([string]::IsNullOrWhiteSpace($reason)) { $reason = "Spam" }
 
     $payload = @{
         threat_type = $threatType
