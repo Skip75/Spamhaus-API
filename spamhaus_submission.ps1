@@ -587,13 +587,13 @@ function Get-SubmissionsList {
     $page = Read-Host "Page (def=1)"
     if (-not ($page -as [int] -and $page -ge 1)) { $page = 1 }
 
-    Write-Host "`nRécupération liste (timeout 10s)..." -ForegroundColor Yellow
+    Write-Host "`nRécupération liste (timeout 30s)..." -ForegroundColor Yellow
     try {
         $response = Invoke-WebRequest `
             -Uri "$API_BASE_URL/submissions/list?items=$items&page=$page" `
             -Method GET `
             -Headers @{"Authorization" = "Bearer $API_TOKEN"} `
-            -TimeoutSec 10 `
+            -TimeoutSec 30 `
             -UseBasicParsing
 
         $list = $response.Content | ConvertFrom-Json
