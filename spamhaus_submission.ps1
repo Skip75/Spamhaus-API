@@ -140,12 +140,12 @@ function Get-ThreatTypes {
         $emailPathRaw = Read-Host "`nChemin complet du fichier .eml"
         $emailPathRaw = $emailPathRaw.Trim('"')
 
-    if (-not (Test-Path $emailPathRaw)) {
+    if (-not (Test-Path -LiteralPath $emailPathRaw)) {
         Write-Host "`nFichier introuvable : $emailPathRaw" -ForegroundColor Red
         Write-Host "Voici tous les fichiers .eml présents dans le dossier :" -ForegroundColor Yellow
     
-        $directory = Split-Path $emailPathRaw
-        $emlFiles = Get-ChildItem -Path $directory -Filter "*.eml"
+        $directory = Split-Path -LiteralPath $emailPathRaw
+        $emlFiles = Get-ChildItem -LiteralPath $directory -Filter "*.eml"
     
         if ($emlFiles.Count -eq 0) {
             Write-Host "Aucun fichier .eml trouvé dans le dossier." -ForegroundColor DarkYellow
@@ -171,7 +171,7 @@ function Get-ThreatTypes {
     }
 
 
-    $emailContent = [string](Get-Content -Path $emailPathRaw -Raw -Encoding UTF8)
+    $emailContent = [string](Get-Content -LiteralPath $emailPathRaw -Raw -Encoding UTF8)
     if ([string]::IsNullOrWhiteSpace($emailContent)) {
         Write-Host "Erreur: email vide." -ForegroundColor Red
         Read-Host "Appuyez sur Entrée..."
