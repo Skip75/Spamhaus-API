@@ -583,9 +583,19 @@ function Get-SubmissionsList {
     Clear-Host
     Write-Host "Liste des submissions" -ForegroundColor Cyan
     $items = Read-Host "`nÉléments par page (1-10000, def=100)"
-    if (-not ($items -as [int] -and $items -ge 1)) { $items = 100 }
+    $itemsInt = 0
+    if ([int]::TryParse($items, [ref]$itemsInt) -and $itemsInt -ge 1 -and $itemsInt -le 10000) {
+        $items = $itemsInt
+    } else {
+        $items = 100
+    }
     $page = Read-Host "Page (def=1)"
-    if (-not ($page -as [int] -and $page -ge 1)) { $page = 1 }
+    $pageInt = 0
+    if ([int]::TryParse($page, [ref]$pageInt) -and $pageInt -ge 1) {
+        $page = $pageInt
+    } else {
+        $page = 1
+    }
 
     Write-Host "`nRécupération liste (timeout 30s)..." -ForegroundColor Yellow
     try {
