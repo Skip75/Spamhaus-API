@@ -611,63 +611,63 @@ function Get-SubmissionsList {
             Write-Host "Aucune submission trouvée." -ForegroundColor Yellow
         } else {
             Write-Host "`nSubmissions: $($list.Count)" -ForegroundColor Green
-            Write-Host ("{0,-25} {1,-15} {2,-53} {3,-20} {4,-20}" -f "Submission Time", "Submission Type", "Submission", "Threat Type", "Listed") -ForegroundColor Cyan
-            Write-Host ("{0,-25} {1,-15} {2,-53} {3,-20} {4,-20}" -f "---------------", "---------------", "----------", "-----------", "------") -ForegroundColor DarkGray
-            
-                        foreach ($s in $list) {
-                $dateTime = [DateTime]::Parse($s.submission_ts)
+            Write-Host ("{0,-25} {1,-8} {2,-53} {3,-20} {4,-20} {5,-20}" -f `
+                "Submission Time", "Type", "Submission", "Threat Type", "Listed", "Last Check") -ForegroundColor Cyan
+            Write-Host ("{0,-25} {1,-8} {2,-53} {3,-20} {4,-20} {5,-20}" -f `
+                "---------------", "----", "----------", "-----------", "------", "----------") -ForegroundColor DarkGray
+
+                    foreach ($s in $list) {
+                $dateTime      = [DateTime]::Parse($s.submission_ts)
                 $formattedDate = $dateTime.ToString("MMM d, yyyy HH:mm")
-                
-                $submissionType = $s.submission_type
+            
+                $submissionType        = $s.submission_type
                 $submissionTypeDisplay = (Get-Culture).TextInfo.ToTitleCase($submissionType)
-                
-                $submissionObject = ""
-                switch ($submissionType) {
+            
+                # Résolution de l'objet affiché
+                $submissionObject = switch ($submissionType) {
                     "ip" {
                         if ($s.attributes -and $s.attributes.address) {
-                            $submissionObject = $s.attributes.address
-                            if ($s.attributes.mask) {
-                                $submissionObject += "/$($s.attributes.mask)"
-                            }
-                        } else {
-                            $submissionObject = $s.source.object
-                        }
+                            $mask = if ($s.attributes.mask) { "/$($s.attributes.mask)" } else { "" }
+                            "$($s.attributes.address)$mask"
+                        } else { $s.source.object }
                     }
                     "domain" {
-                        if ($s.attributes -and $s.attributes.domain) {
-                            $submissionObject = $s.attributes.domain
-                        } else {
-                            $submissionObject = $s.source.object
-                        }
+                        if ($s.attributes -and $s.attributes.domain) { $s.attributes.domain }
+                        else { $s.source.object }
                     }
                     "email" {
-                        if ($s.attributes -and $s.attributes.subject) {
-                            $submissionObject = "Subject: $($s.attributes.subject)"
+                        if ($s.attributes -and $null -ne $s.attributes.subject -and -not [string]::IsNullOrWhiteSpace($s.attributes.subject)) {
+                            "Subject: $($s.attributes.subject)"
+                        } elseif (-not [string]::IsNullOrWhiteSpace($s.reason)) {
+                            "Reason: $($s.reason)"
                         } else {
-                            $submissionObject = "<raw email content>"
+                            "<parsing pending>"
                         }
                     }
-                    default {
-                        $submissionObject = $s.source.object
-                    }
+                    default { $s.source.object }
                 }
-                
-                $isListed = "Pending"
-                if ($null -eq $s.listed) {
-                    $isListed = "Pending"
+            
+                # Statut Listed
+                $isListed = if ($null -eq $s.listed) {
+                    "Pending"
                 } elseif ($s.listed -is [array] -and $s.listed.Count -eq 0) {
-                    $isListed = "No"
+                    "No"
                 } elseif ($s.listed -is [array] -and $s.listed.Count -gt 0) {
-                    $datasets = $s.listed -join ", "
-                    $isListed = "Yes ($datasets)"
-                }
-                
-                # Tronquer si trop long (max 50 caractères)
+                    "Yes ($($s.listed -join ', '))"
+                } else { "Pending" }
+            
+                # Last check
+                $lastCheck = if ($null -ne $s.last_check) {
+                    [DateTime]::Parse($s.last_check).ToString("MMM d, yyyy HH:mm")
+                } else { "—" }
+            
+                # Tronquer si >50 chars
                 if ($submissionObject.Length -gt 50) {
                     $submissionObject = $submissionObject.Substring(0, 47) + "[...]"
                 }
-                
-                Write-Host ("{0,-25} {1,-15} {2,-53} {3,-20} {4,-20}" -f $formattedDate, $submissionTypeDisplay, $submissionObject, $s.threat_type, $isListed)
+            
+                Write-Host ("{0,-25} {1,-8} {2,-53} {3,-20} {4,-20} {5,-20}" -f `
+                    $formattedDate, $submissionTypeDisplay, $submissionObject, $s.threat_type, $isListed, $lastCheck)
             }
         }
     }
