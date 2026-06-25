@@ -170,13 +170,13 @@ function Get-ThreatTypes {
         }
     }
 
-
-    $emailContent = [string](Get-Content -LiteralPath $emailPathRaw -Raw -Encoding UTF8)
-    if ([string]::IsNullOrWhiteSpace($emailContent)) {
+    $emailBytes = [System.IO.File]::ReadAllBytes($emailPathRaw)
+    if ($emailBytes.Length -eq 0) {
         Write-Host "Erreur: email vide." -ForegroundColor Red
         Read-Host "Appuyez sur Entrée..."
         return
     }
+    $emailContent = [Convert]::ToBase64String($emailBytes)
     
     $reason = Read-Host "Raison (max 255 chars, Default or empty = 'Spam')"
     if ([string]::IsNullOrWhiteSpace($reason)) { $reason = "Spam" }
