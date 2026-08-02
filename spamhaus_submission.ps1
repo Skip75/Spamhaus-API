@@ -158,7 +158,7 @@ function Submit-Email {
     $bytes = [IO.File]::ReadAllBytes($path)
     if ($bytes.Length -eq 0) { Write-Host "Fichier vide." -ForegroundColor Red; Pause; return }
     if ($bytes.Length -gt 150000) {
-        Write-Host "Erreur : fichier de $([Math]::Round($bytes.Length/1024,1)) Ko, limite API = 150 Ko de contenu brut." -ForegroundColor Red
+        Write-Host "Erreur : fichier de $($bytes.Length) octets > limite API = 150000 octets de contenu brut." -ForegroundColor Red
         Pause; return
     }
 
