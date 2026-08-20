@@ -150,7 +150,14 @@ function Submit-Email {
     Clear-Host
     Write-Host "=== Soumission d'un email malveillant ===" -ForegroundColor Cyan
 
-    $path = (Read-Host "Glissez le fichier .eml dans cette fenetre puis validez").Trim('"',' ')
+    Add-Type -AssemblyName System.Windows.Forms
+    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+    $dialog.Filter = "Fichiers email (*.eml)|*.eml|Tous les fichiers (*.*)|*.*"
+    $dialog.Title = "Selectionnez le fichier email a soumettre"
+    if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
+        Write-Host "Aucun fichier selectionne." -ForegroundColor Yellow; Pause; return
+    }
+    $path = $dialog.FileName
     if (-not (Test-Path -LiteralPath $path)) {
         Write-Host "Fichier introuvable : $path" -ForegroundColor Red; Pause; return
     }
