@@ -223,7 +223,7 @@ function Submit-Email {
     # 3) Delai de pacage entre 2 envois pour eviter le HTTP 429 (rate limit non
     #    publie officiellement par Spamhaus pour cet endpoint : valeur prudente,
     #    ajustable si vous obtenez des 429 malgre tout).
-    $DelayBetweenCallsSec = 2
+    $DelayBetweenCallsSec = 1
 
     $results = New-Object System.Collections.Generic.List[object]
     $index = 0
